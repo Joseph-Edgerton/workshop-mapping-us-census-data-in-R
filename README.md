@@ -16,7 +16,7 @@ UVA Research Data Services
 https://library.virginia.edu/data
 
 ## Origin of data
-U.S. Census API via {tidycensus}, and ...
+U.S. Census API via {tidycensus}, and an [external dataset](https://data.virginia.gov/dataset/places-zcta-data-gis-friendly-format-2024-release) from the CDC via the Virginia Open Data Portal.
 
 ## Dependencies
 For this worskhop you need to download and install R, RStudio, and the multiple packages.
