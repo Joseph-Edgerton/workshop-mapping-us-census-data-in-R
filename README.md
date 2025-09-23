@@ -40,16 +40,16 @@ If you just want to follow along and run code already present, then open the "co
 
 ## Workshop project directory:
 
-+-- data
+- data
 
-+-- output
+- output
 
-+-- images
+- images
 
-+-- completed_code
-|--+-- 2025-08-25_workshop_spatial_census_r_code_v2_FULL.html
-|--+-- 2025-08-25_workshop_spatial_census_r_code_v2_FULL.qmd
+- completed_code
+  - 2025-08-25_workshop_spatial_census_r_code_v2_FULL.html
+  - 2025-08-25_workshop_spatial_census_r_code_v2_FULL.qmd
 
-+-- 2025-08-25_workshop_spatial_census_r_code_v2_CODE_ALONG.qmd
+- 2025-08-25_workshop_spatial_census_r_code_v2_CODE_ALONG.qmd
 
-\-- README.md
+README.md
