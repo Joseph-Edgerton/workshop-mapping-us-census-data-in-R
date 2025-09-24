@@ -1,0 +1,723 @@
+---
+title: "Mapping US Census Data with R Workshop"
+author:
+  - name: Joseph Edgerton
+    orcid: 0009-0000-1292-6642
+    affiliations:
+    - name: UVA Research Data Services
+      url: https://library.virginia.edu/data
+date: today
+format:
+  html:
+    toc: true
+    embed-resources: true
+    mermaid: 
+      theme: neutral
+editor_options: 
+  chunk_output_type: console
+---
+
+## Workshop Purpose
+
+Part of the 2025 fall series of Research Data Services workshops, this workshop will provide a quick
+overview to gathering Census data as well as using multiple map packages for
+creating thematic maps in R.
+
+## Quarto Review
+
+This script is made using Quarto (.qmd), which is a newer RMarkdown (.rmd) file that contains more features and can work with multiple programming languages. I use features such as "callout notes," "code chunks," and even some diagram tools throughout. If you want to learn more about quarto, or markdown formatting, please see [Posit's Quarto website](https://quarto.org/) for details.
+
+Regarding running the code, on each code chunk starting with ` ```{r} `you can click the green play button on the right side of the code chunk to run all the code within that chunk.
+
+To render this script as an HTML page, click the "Render" button on the RStudio menu (next to the magnifying glass icon).
+
+## Setup
+
+Before downloading the data, we need to load our R packages and adjust some settings.
+
+### Install Packages
+
+If you are installing these packages for the first time, then you should run this chunk and download them. Otherwise, skip this chunk.
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+#| eval: false
+
+my_packages <- c(
+  "tidyverse",
+  "here",
+  "tidycensus",
+  "sf",
+  "tmap",
+  "mapsf",
+  "mapgl"
+)
+
+install.packages(pkgs = my_packages,
+                 repos = "https://cran.r-project.org")
+```
+
+::: {.callout-note collapse="true"} 
+If you encounter this prompt: "Do you want to install from sources the package which needs compilation?"
+
+See 7.1.3 of "[A Succinct Intro to R](https://r-guide.steveharoz.com/libraries-and-packages.html)" by Steve Haroz for additional guidance.
+:::
+
+### Load Packages
+
+Next, let's load the packages we need.
+
+```{r}
+#| echo: true
+#| message: false
+#| warning: false
+
+# General packages
+library(tidyverse)
+library(here)
+# Census packages
+library(tidycensus)
+# Mapping packages
+library(tmap)
+library(mapsf)
+library(mapgl)
+```
+
+### Set aesthetics and options
+
+Then, we will set some options for all following code chunks. These settings ensure that when rendering the code into HTML, the code, any messages, and any warnings are not printed out as well (otherwise the report here would be very long).
+
+```{r}
+#| code-summary: "Styles"
+
+# Make sure all subsequent chunks don't have a bunch of unneeded output
+knitr::opts_chunk$set(message = FALSE,
+                      warning = FALSE)
+
+```
+
+### Census Key
+
+Next, we need to input the Census key that was emailed to us.
+
+If you haven't received your API key, you can go to this link <https://api.census.gov/data/key_signup.html> and then get your key emailed to you.
+
+1.  Enter your information, submit it, and you will see this message: "Success: Your request for a new API key has been successfully submitted"
+
+2.  You will receive an email for the key in a minute or so, and then you need to wait at least 4 minutes before clicking on "click here to activate your key." This is because the service may not be updated fast enough to verify your key. Waiting a little bit after the email arrives helps everything catch up.
+
+3.  After 4 min from receiving the email, click the "click here to activate your key." You should see a message saying "Success." If you do not, wait another few minutes and then try again.
+
+Now that your key is activated we can return to R here.
+
+The `census_api_key()` function below will add the key into your environment variables so you won't have to enter it in the future. You only have to use this function one time and then can comment it out after it stores your key (only needs to be run once).
+
+:::{.callout-warning}
+If you already have an API Census Key stored in your R environment then you shouldn't run the chunk below, otherwise it will overwrite your key.
+:::
+
+```{r}
+#| eval: false
+#| echo: true
+
+tidycensus::census_api_key("INSERT KEY",
+                           install = TRUE,
+                           overwrite = TRUE)
+```
+
+::: {.callout-note collapse="true"}
+You don't need to use the key if you make less than 500 queries per day but it is still good to have one and it is better to be safe if you are gathering lots of Census data or adjusting your query a lot.
+:::
+
+Here we will restart R, comment out the code chunk above (match below chunk), and then continue with the rest of the script after re-running the code.
+
+```{r}
+# tidycensus::census_api_key("INSERT KEY",
+# install = TRUE,
+# overwrite = TRUE)
+```
+
+Next, let's check that the key was successful.
+
+```{r}
+#| eval: false
+# Return your environment variable
+Sys.getenv("CENSUS_API_KEY")
+```
+
+If you are successful, it should output a character string like: "9d7e67624413da7c57d7f1512750693kd36d3675." Please let me know if you are having trouble during this step.
+
+## Data
+
+With the packages loaded, the options set for chunks, and our Census API key entered, we are ready to begin gathering our data!
+
+::: {.callout-note collapse="true"}
+One of the nice things when working with APIs is not having to read in a bunch of data at the start. However, you may want to save output as separate intermediate files as you work through an analysis (e.g., small csv tables). This way you don't need to
+keep calling the query and can work with the data you already downloaded.
+:::
+
+### Census Data Query
+
+This is the main Census-related question we will use for this tutorial:
+
+**Question: What was the Median Household Income of Charlottesville City for different neighborhoods in 2022?**
+
+Goal: We want to plot these data and make them visual for the audience.
+
+#### Query Diagram
+
+Let's look at a diagram to help break this question down into components.
+
+::: {.callout-warning collapse="true"}
+If you are just working through this script and running each chunk of code you will not see this diagram. Please refer to the rendered HTML page to see the visual of this diagram.
+:::
+
+```{mermaid}
+flowchart LR
+    subgraph variable
+    id1["Median household income"]
+    end
+    subgraph location
+    id2["Charlottesville City, Va"]
+    end
+    subgraph level
+    id3["Neighborhood aka 'tract'"]
+    end
+    subgraph time
+    id4[2022]
+    end
+    variable --> location --> level --> time
+    
+```
+
+Now that we know about different parts of the query, how to do you find Census variables?
+
+1. Google variable names
+
+2. Use `load_variables()` function for a quick look-up.
+
+```{r}
+tidycensus::load_variables(2022,
+                           "acs5",
+                           cache = TRUE) |>
+  view()
+```
+
+While I've included the variable within the question it can sometimes be difficult to decide on exactly what variable to use. Some are similar to each other with only subtle differences.
+
+If you need to check the documentation about what Census variables actually represent, use the data.census.gov website, enter your search query, and click the "Notes" icon next to the "Geos" and other filter icons above the table you are looking for.
+
+
+
+![](images/Census_notes.jpg){fig-alt="screenshot of US Census bureau data website with a random table result selected and a red circle pointing to a notes icon on the navigation bar"}
+
+These notes provide a lot of good information for understanding variables and methods used to generate them. Additionally, the UVA library [Census LibGuide](https://guides.lib.virginia.edu/c.php?g=761852&p=5462792) has a lot of good information on getting started with Census data.
+
+Now, let's build our query and get our data:
+
+```{r}
+#| echo: true
+#| output: false
+raw_data <- tidycensus::get_acs(
+  geography = "tract",
+  variables = c(
+    # We can rename variables here so they are more readable later
+    "med_house_income" = "B19013_001",
+    # We are also getting total population to plot it separately later
+    "total_population" = "B01003_001"
+  ),
+  year = 2022,
+  state = "VA",
+  county = "Charlottesville City",
+  # The default survey is acs5 so be careful when asking for different data
+  survey = "acs5",
+  # This argument will query the Census geometry using the {tigris} package
+  geometry = TRUE,
+  # The environment variable Census key which should
+  # already be stored in your environment.
+  key = Sys.getenv("CENSUS_API_KEY"),
+)
+```
+
+You should see an "sf" table in your environment pane with 24 rows, representing the 12 tracts for Charlottesville.
+
+#### Check Census Query
+
+It's always a good idea to take a quick peek at the data.
+
+```{r}
+raw_data |>
+  # View the first few rows of data
+   head()
+```
+
+We see we now have a spatial data frame called a "simple feature collection" that contains some metadata on the type of geometry we have, the bounding box extent, and the Coordinate Reference System we are using.
+
+If you want a refresher on simple feature geometry and some geospatial concepts, there is a great [UVA StatLab article](https://library.virginia.edu/data/articles/spatial-r-using-sf-package) covering this.
+
+Now that we've seen the data, let's make sure everything looks correct by plotting the geometry.
+
+```{r}
+ggplot(raw_data) +
+  # Specify the geometry column here
+    geom_sf(aes(geometry = geometry),
+  # Add colors for contrast
+    fill = "orange",
+    color = "white")
+```
+
+Ok, it looks alright. No obvious missing areas from what I can see.
+
+::: {.callout-note collapse="true"}
+In a lot of cases, there is too much geometry detail to visualize without maxing out RAM on your computer. In that case, we cut back on the number of vertices used to draw each shape. Here, there are only a couple hundred, small geometries so it is ok to not simplify each one. But if we needed to we could use [`st_simplify()`](https://r-spatial.github.io/sf/reference/geos_unary.html) to remove some detail of our geometry.
+:::
+
+Now that we've gone through our query, let's make another as practice.
+
+### Optional Practice Question
+
+Write and submit a query using tidycensus for the following question:
+
+`What is the difference in number between Renter occupied housing units and Owner occupied housing units for Albermarle County, VA in 2023?`
+
+### Optional Practice Walkthrough
+
+If you don't know the table ID then you can google the
+keyword and append "US Census."
+
+E.g., Renter occupied housing units US census
+
+I tried "renter occupied housing unit us census" and the first result by the U.S. Census website didn't really mention any new keywords or specific variables.
+
+![](images/google_search_census_concepts.png){width=60% fig-alt="Google result page showing 5 results from the query 'renter occupied housing unit us census' with some results being Census links and others from different organizations, like Census Reporter"}
+
+#### Census Reporter
+Another resource is the [Census Reporter website](https://censusreporter.org/), an open source project, which can be useful to supplement Census documentation and resources. Here, I found the "Housing" topic and it describes that this question involves a concept known as "Tenure." The first table, without additional variables, is B25003.
+
+![](images/census_reporter_screenshot.png){width=80% fig-alt="screenshot of Census Reporter page on the topic of housing that has a small overview, a sample of the survey portion asked, and table of table name codes."}
+
+I click on this table and it shows that it contains the total number of "owner occupied" and "renter occupied" housing units. Perfect, it's exactly what I need. Even though we have technically answered our original question, we may want to change our question or look at multiple counties--so we still want to go through the trouble of using code to answer this question (not just a website).
+
+
+#### How to find names of variables available
+To get the specific variable names can also be tricky. One place to look on the Census website is called "Table Shells." We can find the [detailed table shell for ACS 2023](https://www2.census.gov/programs-surveys/acs/summary_file/2023/table-based-SF/documentation/ACS2023_Table_Shells.xlsx) and then navigate to the B25003 table to find the specific variables to call in R.
+
+We can see that the variables we need are B25003_002 for owner occupied, and B25003_003 for renter occupied. We are now ready to work on our query.
+
+```{r}
+#| echo: true
+#| output: false
+raw_data_practice <- tidycensus::get_acs(
+  # We need the county level
+  geography = "county",
+  variables = c(
+    # We can rename variables here so they are more readable later
+    "owner_occupied" = "B25003_002",
+    "renter_occupied" = "B25003_003"
+  ),
+  # Update the year
+  year = 2023,
+  state = "VA",
+  # Update the county
+  county = "Albemarle County",
+  survey = "acs5",
+  geometry = TRUE,
+  key = Sys.getenv("CENSUS_API_KEY")
+)
+```
+
+Great! Part of the point here is that there are a lot of resources and information, depending on what you want to do with Census data.
+
+Now we can return to our original query and continue the workflow.
+
+### Clean Data
+
+Next I wanted to clean up the data a bit and investigate the columns.
+
+| Variable | Definition                                                |
+|----------|-----------------------------------------------------------|
+| GEOID    | The identifier for geographic areas                       |
+| NAME     | Name of the geography                                     |
+| variable | One or more Census table variables queried                |
+| estimate | The value for the variable (estimate since it's a sample) |
+| moe      | Margin of Error                                           |
+
+: Table of variables from ACS query
+
+Sometimes for plotting groups and making comparisons you want to have variables together in a column like this as "long data," other times "wide data" (more columns) is appropriate.
+
+Here, we will widen our data frame to make separate columns for population and median household income. Additionally, I'm just interested in casually plotting these data (no analyses) so I'm going to ignore the moe column and remove it. Census data can get really wide with columns so it's good to only work with columns you need.
+
+```{r}
+pivotted_data <- raw_data |> 
+  # Remove moe column
+    select(-moe) |> 
+  # Take the names in this column and create new columns for each one
+    pivot_wider(names_from = "variable",
+  # Transfer over the estimate column values to the correct new columns.
+    values_from = "estimate")
+
+# Quick review of data
+pivotted_data |> 
+  head()
+```
+
+Great! We have our data in a good format for the second half of the workshop, plotting.
+
+## Plot
+
+Now we have our data, and we are ready to create a thematic map,
+a map that displays some topic.
+
+While other packages like {ggplot2} can plot geometry it doesn't have mapping features otherwise available in GIS (e.g., scale bars, North arrows).
+
+For each of the following map packages, we will try to produce roughly the same map using their provided functions:
+
+**Choropleth map showing all tracts by level of income, with an overlay bubble map of population**
+
+Each map should have two legends, one for each property or variable displayed, and should have a North arrow and scale bar for reference. The goal is to see how the output compares among the packages and to see which you may prefer. This is not to say one package is inherently better than another.
+
+### `{tmap}`
+
+The nice thing about {tmap} is that it has a building layers approach to maps borrowed from ggplot2, using "+" signs to add layers.
+
+```{r}
+tmap_1 <- ""
+
+tmap_1
+```
+
+The map itself is little basic, so let's change the color, the bin size, and the legend titles.
+
+```{r}
+tmap_2 <- ""
+
+tmap_2
+```
+
+::: {.callout-note collapse="true"}
+If you see "\[plot mode\] fit legend/component: Some legend items or map components do not fit well, and are therefore rescaled." notification we may need to adjust auto settings for rescaling. For now, we'll leave it be.
+:::
+
+Finally, let's add a scale bar, a North arrow, and a title. I also want to move and shift the map and components around a little bit too.
+
+```{r}
+tmap_3 <- ""
+
+tmap_3
+```
+
+Alright, we're happy with the map now, and we've satisfied our criteria. Let's save it.
+
+::: {.callout-note collapse="true"}
+I use the [{here}](https://here.r-lib.org/articles/here.html) package to do relative
+path reference for my project directory.
+
+Please feel free to change this if you 
+prefer a different way to specify your relative
+directory path.
+:::
+
+```{r}
+
+```
+
+::: {.callout-warning collapse="true"}
+Be careful when adjusting the map sizing, the map viewer in your IDE (e.g., RStudio) and the output file may look different due to settings you have. Always look at the output to confirm the positions of where things are.
+:::
+
+::: {.callout-tip appearance="minimal"}
+### Summary
+
+{tmap} provides a lot of convenient mapping options that you would see in dedicated GIS software. One feature I appreciate, but didn't get to, is idea of a [design mode](https://r-tmap.github.io/tmap/articles/adv_margins#design-mode) that's akin to QGIS Print Layout or ArcGIS Layout.
+
+If you are making a few maps it may seem laborious, but if doing a series of maps it may help you be more efficient by copying or looping code.
+:::
+
+### `{mapsf}`
+
+Now, let's take a look at {mapsf}
+
+Like above, let's also change the binning to "equal," adjust the legend titles and map title, and the color scheme.
+
+```{r}
+# Create the default base map
+mapsf::mf_map(x = pivotted_data)
+# Define the variables we want to use and the
+# type of chart we need
+mapsf::mf_map(x = pivotted_data,
+              var = c("total_population",
+                      "med_house_income"),
+              type = "prop_choro",
+              leg_title = c("Total Pop",
+                            "Median House Income"),
+              breaks = "equal",
+              pal = "Viridis",
+              add = TRUE)
+
+# Map title
+mapsf::mf_title("Charlottesville's income and\n population by neighborhood")
+
+```
+
+Here, we are using a different chart type that gives us the same information but in a more efficient manner.
+
+::: {.callout-note collapse="true"}
+Because of the layering aspect, we need need to tell each subsequent function with a map that it needs to be "added" with `add = TRUE`.
+:::
+
+The package has some nice defaults. I appreciate the nested proportional circle legend as opposed to the previous legend. Let's finish this map with a North arrow and also try out a shadow effect.
+
+```{r}
+# Create the shadow
+mapsf::mf_shadow(pivotted_data)
+# Create the default base map
+mapsf::mf_map(x = pivotted_data,
+              add = TRUE)
+
+mapsf::mf_map(x = pivotted_data,
+              var = c("total_population",
+                      "med_house_income"),
+              type = "prop_choro",
+              leg_title = c("Total Pop",
+                            "Median House Income"),
+              breaks = "equal",
+              pal = "Viridis",
+              add = TRUE)
+
+mapsf::mf_title("Charlottesville's income and\n population by neighborhood")
+
+# Place the compass arrow
+mf_arrow(pos = "bottomright")
+
+```
+
+Alright, I think we're ready to save our plot. There aren't as many exporting formats available in this package but you still have a choice of image (PNG) or vector (SVG) representations.
+
+```{r}
+# Save the map as an PNG
+mapsf::mf_png(x = pivotted_data,
+              filename = here("output",
+                              paste0(Sys.Date(),
+                                     "_mapsf.png")))
+
+# Create the shadow
+mapsf::mf_shadow(pivotted_data)
+# Create the default base map
+mapsf::mf_map(x = pivotted_data, add = TRUE)
+# Main choropleth map
+mapsf::mf_map(x = pivotted_data,
+              var = c("total_population",
+                      "med_house_income"),
+              type = "prop_choro",
+              leg_title = c("Total Pop",
+                            "Median House Income"),
+              breaks = "equal",
+              pal = "Viridis",
+              add = TRUE)
+# Add title
+mapsf::mf_title("Charlottesville's income and\n population by neighborhood")
+# Add North arrow
+mf_arrow(pos = "bottomright")
+
+# With base R graphics, need to turn off after using.
+dev.off()
+```
+
+::: {.callout-tip appearance="minimal"}
+### Summary
+
+{mapsf} provides a way quick way to make thematic maps without a lot of dependencies or external packages. The shadow effects and other features are also nice to add to maps to make them a bit more visually appealing and interesting
+
+It doesn't come with as many features as the other packages but it does offer those with more experience using base R graphics a way to create maps that is familiar to them.
+
+:::
+
+### `{mapgl}`
+
+Finally, let's take a look at {mapgl} for some interactive mapping.
+
+::: {.callout-warning collapse="true"}
+The {mapgl} package is unable to be knitted in the quarto HTML page.
+You are currently able to run these chunk within RStudio
+but it may take a while before you can embed these interactive plots into
+HTML reports. This functionality will be added soon according to [some Github activity](https://github.com/quarto-dev/quarto-cli/issues/10339) so keep an eye out
+if you want interactive plots like these in your HTML output.
+:::
+
+```{r}
+#| eval: false
+
+# Create breaks for the data and assign palette colors ahead of mapping
+q_class <- step_quantile(
+  data = pivotted_data,
+  column = "med_house_income",
+  n = 5,
+  colors = RColorBrewer::brewer.pal(5,
+                                    "PRGn")
+  )
+
+# Create the map layers and aesthetics
+
+# Base map
+maplibre(bounds = pivotted_data) |> 
+  # Choropleth layer
+  add_fill_layer(
+    id = "choropleth",
+    source = pivotted_data,
+    # Take the object and use it to map colors to the geometry
+    fill_color = q_class$expression,
+    fill_opacity = 0.7
+  ) |>
+    # Add a legend with some nice labeling
+  mapgl::add_legend("Median House Income",
+    values = get_legend_labels(q_class,
+                               digits = 0,
+                               prefix = "$"),
+    colors = get_legend_colors(q_class),
+    type = "categorical"
+  )
+    
+```
+
+I'm not quite sure how to make a graduated symbol layer yet with this package but I feel like it's possible (e.g., `add_circle_layer()`).
+
+For now, let's try to change the colors and better define the borders.
+
+```{r}
+#| eval: false
+
+ # Create breaks for the data and assign palette colors ahead of mapping
+q_class <- step_quantile(
+  data = pivotted_data,
+  column = "med_house_income",
+  n = 5,
+  colors = RColorBrewer::brewer.pal(5,
+                                    "YlGnBu")
+)
+
+# Create the map layers and aesthetics
+
+# Base map
+maplibre(bounds = pivotted_data) |> 
+  # Choropleth layer
+  add_fill_layer(
+    id = "choropleth",
+    source = pivotted_data,
+    fill_color = q_class$expression,
+    fill_opacity = 0.7
+  ) |>
+  # Creating a border layer for emphasis
+  add_line_layer(
+    id = "border",
+    source = pivotted_data,
+    line_color = "navy",
+    line_opacity = 0.7) |> 
+  # Add a legend
+  mapgl::add_legend(
+    "Median House Income in Charlottesville",
+    values = get_legend_labels(q_class,
+                               digits = 0,
+                               prefix = "$"),
+    colors = get_legend_colors(q_class),
+    type = "categorical"
+  )
+
+```
+
+With it being web mapping, there isn't a clear option for a title. Instead the legend will have to suffice. Also, options are not as clear for adding arrows or scale bars for these web maps. I'm sure these options can be added but there are a lot of options in this package to explore.
+
+::: {.callout-tip appearance="minimal"}
+### Summary
+
+{mapgl} has a lot of potential uses being built from javascript mapping libraries for the web. The coding is the most dense of all packages but it provides more flexibility in turn for different aspects and features (e.g., you can control the views people see and even create story maps!).
+:::
+
+
+## Overall summary
+
+You can begin to see that each mapping package is different and some are not as useful for specific mapping tasks.
+
+Also, when working with Census data there are a lot of different geographies and variables to plot, so make sure you understand your data before rushing to plot them.
+
+## Practice
+
+Finally, let's spend some time practicing making maps.
+
+### Practice: A comparison
+
+For fun and to go a bit further, let's try to create a comparison
+map between two entities:
+
+**Between the states of Virginia and Maryland, visualize the differences
+between Gini index scores at the county level for 2023.**
+
+The Gini Index is a single number that captures the income inequality for an area. A "0" represents equality which every person gets the same income, and a "1" represents inequality, in
+which one person has all the income for the area. See the [Census website](https://www.census.gov/topics/income-poverty/income-inequality/about/metrics/gini-index.html) for more info about measures of income inequality.
+
+Using everything you've learned, let's see what we can make. Again, there is no
+completely right way to do this so feel free to be creative.
+
+```{r}
+# Practice answer
+
+
+```
+
+Need to save our new plot and check the layout.
+
+```{r}
+
+```
+
+I know I'm leaving a few things out but there are also things I don't know about these packages so I just want to show as much as I can and then leave y'all to go and explore specific uses.
+
+
+### Bonus practice: Bring in external data
+
+*We may not have time for this one, and I didn't include a solution to review, but I'm going to leave the prompt if anyone wants to explore it afterwards.*
+
+We now want to explore a new level of data available: Zip Code Tabulation Area (ZCTA) 
+
+**At the ZCTA level, visualize both disability and median household income as variables of interest for Charlottesville City in 2023.** 
+
+Median household income is available through the ACS, but the disability variable comes from an external dataset `PLACES__ZCTA_Data__GIS_Friendly_Format___2024_release.csv` in the "/data" folder. Find a way to combine the datasets and then display the two variables on the same map or two separate maps.
+
+## Resources
+
+I cannot share all the features of each package due to length and time (e.g., the {tmap} package also has an interactive component for mapping as well). If you want to explore more then please see the resources below:
+
+[Quarto reference book for scientists](https://qmd4sci.njtierney.com/)
+
+[What are GEOIDs?](https://www.census.gov/programs-surveys/geography/guidance/geo-identifiers.html)
+
+[USGS using {tidycensus}](https://waterdata.usgs.gov/blog/acs-maps/)
+
+[Kyle Walker's census data book](https://walker-data.com/census-r/)
+
+[Spatial Data Visualization with {tmap}](https://tmap.geocompx.org/)
+
+[Duke {tmap} materials](https://map-rfun.library.duke.edu/031_thematic_mapping.html)
+
+[Cheat sheet for {mapsf}](https://raw.githubusercontent.com/riatelab/mapsf/master/vignettes/fig/mapsf_cheatsheet.pdf)
+
+[{mapsf} book](https://riatelab.github.io/mapsf/#/)
+
+[Package website for {mapgl}](https://walker-data.com/mapgl/index.html)
+
+[UVA Spatial Technology libguide](https://guides.lib.virginia.edu/gis)
+
+Email:
+
+If you have any questions, I'm happy to follow up with a one-on-one consult as well or you can send a request to the UVA Research Data Management email <dmconsult@virginia.edu>.
+
+Spatial questions (e.g., map projections, spatial techniques, ArcGIS) can be answered by the UVA Geographic Information Science (GIS) support group <uvagis@virginia.edu>. They also teach spatial workshops through each semester.
+
+## **Thank you all** 
+
+I hope you are excited to make some cool maps and check out
+new workflows. Feel free to check out [other library workshops](https://cal.lib.virginia.edu/calendar/events?cid=4299&t=d&d=0000-00-00&cal=4299&ct=51597&inc=0) happening on all sorts of different topics.
+
+![](images/alderman-and-peabody.jpg){fig-alt="fall sunset with mellow blue and purple skies over Shannon hall and the surrounding courtyard while exterior lights glow around the outside of buildings."}
